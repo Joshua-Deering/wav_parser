@@ -1,0 +1,35 @@
+import {Button} from "std-widgets.slint";
+
+export component MainWindow inherits Window {
+    width: 800px;
+    height: 450px;
+
+    HorizontalLayout {
+        Rectangle {
+            background: #4287f5;
+            VerticalLayout {
+                alignment: center;
+                spacing: 5px;
+                padding: 10px;
+                Rectangle {
+                    Button {
+                        text: "Play Audio";
+                    }
+                }
+                Rectangle {
+                    Button {
+                        text: "Visualizers";
+                    }
+                }
+                Rectangle {
+                    Button {
+                        text: "Real-Time Analyzer";
+                    }
+                }
+            }
+        }
+        Rectangle {
+            background: #619eff;
+        }
+    }
+}
