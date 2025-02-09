@@ -1,11 +1,67 @@
-use cpal::Data;
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{Data, Host, OutputCallbackInfo, SampleFormat, SampleRate, Stream};
 use std::fs::File;
 use std::io::{BufReader, Seek, SeekFrom};
+use std::sync::{Mutex, Arc};
 
-use crate::file_io::{WavInfo, read_data_interleaved_unchecked};
-use crate::audio::{WindowFunction, ShortTimeDftData, do_short_time_fourier_transform};
-use crate::read_wav_meta;
+use crate::file_io::{read_data_interleaved_unchecked, read_wav_meta, WavInfo};
+//use crate::audio::{WindowFunction, ShortTimeDftData, do_short_time_fourier_transform};
 
+pub struct AudioPlayer {
+    internal_player: Arc<Mutex<FilePlayer>>,
+    pub playing: bool,
+    stream: Stream,
+}
+
+impl AudioPlayer {
+    pub fn new(file_path: String) -> Self {
+        let mut reader = BufReader::new(File::open(format!("./res/audio/{}", file_path)).unwrap());
+        let meta = read_wav_meta(&mut reader);
+        
+        let internal_player = Arc::new(Mutex::new(FilePlayer::new_from_reader(reader, meta.clone())));
+
+        let sample_rate = meta.sample_rate;
+        
+        let host: Host = cpal::default_host();
+        let device = host.default_output_device().expect("No audio device available!");
+
+        let mut supported_output_configs = device.supported_output_configs().expect("Error querying output configs!");
+        let config = supported_output_configs
+            .find(|&e| e.max_sample_rate() == SampleRate(sample_rate))
+            .expect("No supported output configs!")
+            .with_sample_rate(SampleRate(sample_rate))
+            .config();
+
+        let stream_player_copy = Arc::clone(&internal_player);
+        let stream = device
+            .build_output_stream_raw(
+                &config,
+                SampleFormat::F32,
+                move |data: &mut Data, _: &OutputCallbackInfo| {
+                    stream_player_copy.lock().unwrap().next_chunk(data);
+                },
+                move |_err| {},
+                None
+            ).unwrap();
+        stream.pause().unwrap();
+
+        Self {
+            internal_player,
+            playing: false,
+            stream,
+        }
+    }
+
+    pub fn start(&mut self) {
+        self.stream.play().unwrap();
+        self.playing = true;
+    }
+
+    pub fn pause(&mut self) {
+        self.stream.pause().unwrap();
+        self.playing = false;
+    }
+}
 
 pub struct SignalPlayer {
     pub samples: Vec<Vec<f32>>,
@@ -29,32 +85,32 @@ impl SignalPlayer {
         }
     }
 
-    pub fn do_short_time_fourier_transform(
-        &self,
-        window_size: f32,
-        overlap: f32,
-        window_func: WindowFunction,
-        channel: usize,
-    ) -> ShortTimeDftData {
-        let dft_data = do_short_time_fourier_transform(
-            &self.samples[channel],
-            self.sample_rate,
-            window_size,
-            overlap,
-            window_func,
-        );
-
-        let dfts = dft_data.len() as u32;
-        let freqs = dft_data[0].len() as u32;
-        ShortTimeDftData::new(
-            dft_data,
-            window_func,
-            overlap,
-            dfts,
-            freqs,
-            self.sample_rate,
-        )
-    }
+    //pub fn do_short_time_fourier_transform(
+    //    &self,
+    //    window_size: f32,
+    //    overlap: f32,
+    //    window_func: WindowFunction,
+    //    channel: usize,
+    //) -> ShortTimeDftData {
+    //    let dft_data = do_short_time_fourier_transform(
+    //        &self.samples[channel],
+    //        self.sample_rate,
+    //        window_size,
+    //        overlap,
+    //        window_func,
+    //    );
+    //
+    //    let dfts = dft_data.len() as u32;
+    //    let freqs = dft_data[0].len() as u32;
+    //    ShortTimeDftData::new(
+    //        dft_data,
+    //        window_func,
+    //        overlap,
+    //        dfts,
+    //        freqs,
+    //        self.sample_rate,
+    //    )
+    //}
 }
 
 impl Play for SignalPlayer {
@@ -79,6 +135,7 @@ pub struct FilePlayer {
     pub finished: bool,
     reader: BufReader<File>,
     pos: usize,
+    start_pos: usize,
     end_pos: usize,
 }
 
@@ -90,6 +147,7 @@ impl FilePlayer {
         reader
             .seek(SeekFrom::Start(file_meta.chunks.get("data").unwrap().0))
             .unwrap();
+        let start_pos = reader.stream_position().unwrap() as usize;
         let end_pos = (file_meta.file_size / (file_meta.bit_depth / 8)) as usize;
 
         Self {
@@ -97,6 +155,24 @@ impl FilePlayer {
             finished: false,
             reader,
             pos: 0,
+            start_pos,
+            end_pos,
+        }
+    }
+
+    pub fn new_from_reader(mut reader: BufReader<File>, file_meta: WavInfo) -> Self {
+        //advance reader to beginning of audio data
+        reader
+            .seek(SeekFrom::Start(file_meta.chunks.get("data").unwrap().0))
+            .unwrap();
+        let start_pos = reader.stream_position().unwrap() as usize;
+        let end_pos = (file_meta.file_size / (file_meta.bit_depth / 8)) as usize;
+        Self {
+            file_meta,
+            finished: false,
+            reader,
+            pos: 0,
+            start_pos,
             end_pos,
         }
     }

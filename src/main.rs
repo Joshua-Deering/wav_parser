@@ -1,29 +1,34 @@
 //mod audio;
 //mod fft;
-//mod file_io;
+mod file_io;
 //mod img_generator;
-//mod players;
-//mod util;
+mod players;
+mod util;
+use players::AudioPlayer;
 //mod parametric_eq;
 //
 //use audio::WindowFunction;
 //use file_io::{read_data, read_stdft_from_file, read_wav_meta, write_stdft_to_file, WavInfo};
 //use img_generator::{generate_spectrogram_img, generate_waveform_img};
 //use players::{FilePlayer, Play, SignalPlayer};
-//use util::*;
-//
+use util::*;
+
 //use core::f32;
 //use std::fs::File;
 //use std::io::{stdin, BufReader};
 //use std::sync::{Arc, Mutex};
 //use std::time::Duration;
 //use std::{thread, thread::sleep};
-//
+
 //use console_menu::{Menu, MenuOption, MenuProps};
 //use cpal::{
 //    traits::{DeviceTrait, HostTrait, StreamTrait},
 //    Data, Device, Host, OutputCallbackInfo, SampleRate, StreamConfig,
 //};
+
+use slint::{ModelRc, SharedString, VecModel};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 slint::include_modules!();
 
@@ -33,6 +38,56 @@ slint::include_modules!();
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let main_window = MainWindow::new()?;
+
+    let player: Rc<RefCell<Option<AudioPlayer>>> = Rc::new(RefCell::new(None));
+
+    let init_ptr = main_window.as_weak();
+    main_window.on_init_menu(move |menu: i32| {
+        let main_window = init_ptr.upgrade().unwrap();
+
+        match menu {
+            0 => {
+                let files: Vec<SharedString> = query_directory("./res/audio/")
+                    .into_iter()
+                    .map(|e| SharedString::from(e))
+                    .collect();
+
+                let model_rc = Rc::new(VecModel::from(files));
+                main_window.set_audio_files(ModelRc::from(model_rc.clone()));
+
+                main_window.set_selected_file("".into());
+            },
+            _ => {}
+        }
+    });
+
+    {
+        let audio_player_ref = Rc::clone(&player);
+        let play_ptr = main_window.as_weak();
+        main_window.on_toggle_play(move | new_state: bool | {
+            let main_window = play_ptr.upgrade().unwrap();
+
+            // Cant play if no file is selected
+            if main_window.get_selected_file().trim().is_empty() {
+                main_window.set_is_playing(false);
+                return;
+            }
+            if let Some(ref mut player) = *audio_player_ref.borrow_mut() {
+                if !new_state {
+                    player.pause();
+                } else {
+                    player.start();
+                }
+            }
+        });
+    }
+
+    {
+        let audio_player_ref = Rc::clone(&player);
+        main_window.on_file_select(move |file: SharedString| {
+            *audio_player_ref.borrow_mut() = Some(AudioPlayer::new(file.into()));
+        });
+    }
 
     main_window.run()?;
 
@@ -58,27 +113,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-//fn do_stdft_menu() {
-//    let files = query_directory("./res/audio");
-//
-//    let mut menu_options: Vec<MenuOption> = vec![];
-//    for file in files {
-//        menu_options.push(MenuOption::new(file.clone().as_str(), move || {
-//            do_stdft(&file)
-//        }));
-//    }
-//
-//    let mut audio_file_menu = Menu::new(
-//        menu_options,
-//        MenuProps {
-//            title: "Choose a File:",
-//            message: "<esc> to close",
-//            ..menu_default_with_colors()
-//        },
-//    );
-//    audio_file_menu.show();
-//}
-//
 //fn do_stdft(file_choice: &str) {
 //    //clear the console output
 //    print!("{}[2J", 27 as char);

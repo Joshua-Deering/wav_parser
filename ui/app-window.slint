@@ -1,35 +1,170 @@
-import {Button} from "std-widgets.slint";
+import {Button, ComboBox} from "std-widgets.slint";
+
+component MainUi {
+    callback toggle_play(bool);
+    callback file_select(string);
+
+    in property <int> cur_menu;
+    
+    in property <[string]> audio_files;
+    in-out property <bool> is_playing: false;
+    in-out property <string> selected_file: "";
+    
+    if (cur_menu == 0): VerticalLayout {
+        width: 100%;
+        height: 100%;
+
+        Rectangle {
+            background: #4287f5;
+        }
+        Rectangle {
+            background: #4287f5;
+            height: 100px;
+            width: 100%;
+            VerticalLayout {
+                alignment: center;
+                Text {
+                    text: "Select a file:";
+                }
+                ComboBox {
+                    width: 200px;
+                    x: 0;
+                    model: root.audio_files;
+                    current-index: -1;
+                    selected => {
+                        root.selected_file = self.current-value;
+                        root.file_select(self.current-value);
+                    }
+                }
+            }
+            Button {
+                width: 80px;
+                height: 40px;
+                x: (root.width / 2) - 40px;
+                text: root.is_playing ? "stop" : "start";
+                clicked => {
+                    root.is_playing = !root.is_playing;
+                    toggle_play(root.is_playing);
+                }
+            }
+        }
+        waveform := Image {
+            height: 100px;
+            width: 100%;
+        }
+    }
+
+    if (cur_menu == 1): VerticalLayout {
+        width: 100%;
+        height: 100%;
+        Rectangle {
+            background: green;
+        }
+    }
+
+    if (cur_menu == 2): VerticalLayout {
+        width: 100%;
+        height: 100%;
+        Rectangle {
+            background: blue;
+        }
+    }
+}
+
+component MenuButton {
+    in property <color> bg;
+    in property <string> text;
+    in property <length> font-size;
+
+    callback btn_pressed();
+
+    min-width: 150px;
+    min-height: 35px;
+
+    Rectangle {
+        background: ta.pressed ? root.bg.darker(50%) : ta.has-hover ? root.bg.darker(-10%) : root.bg;
+        border-color: self.background.darker(40%);
+        ta := TouchArea {
+            clicked => { root.btn_pressed(); }
+        }
+        txt := Text {
+            wrap: no-wrap;
+            text: root.text;
+            font-size: root.font-size;
+        }
+    }
+}
 
 export component MainWindow inherits Window {
     width: 800px;
     height: 450px;
+    property <int> current-menu;
+
+    in property <[string]> audio_files <=> main_ui.audio_files;
+    in-out property <bool> is_playing <=> main_ui.is_playing;
+    in-out property <string> selected_file <=> main_ui.selected_file;
+    callback toggle_play <=> main_ui.toggle_play;
+    callback file_select <=> main_ui.file_select;
+
+    callback init_menu(menu: int);
+
+    init => {
+        init_menu(0);
+    }
 
     HorizontalLayout {
         Rectangle {
             background: #4287f5;
             VerticalLayout {
                 alignment: center;
-                spacing: 5px;
-                padding: 10px;
+                spacing: 1px;
                 Rectangle {
-                    Button {
+                    MenuButton {
                         text: "Play Audio";
+                        font-size: 15px;
+                        bg: #347bed;
+                        btn_pressed() => {
+                            if (current-menu != 0) {
+                                init_menu(0);
+                                main_ui.cur_menu = 0;
+                                current-menu = 0;
+                            }
+                        }
                     }
                 }
                 Rectangle {
-                    Button {
+                    MenuButton {
                         text: "Visualizers";
+                        font-size: 15px;
+                        bg: #347bed;
+                        btn_pressed() => {
+                            if (current-menu != 1) {
+                                init_menu(1);
+                                main_ui.cur_menu = 1;
+                                current-menu = 1;
+                            }
+                        }
                     }
                 }
                 Rectangle {
-                    Button {
+                    MenuButton {
                         text: "Real-Time Analyzer";
+                        font-size: 15px;
+                        bg: #347bed;
+                        btn_pressed() => {
+                            if (current-menu != 2) {
+                                init_menu(2);
+                                main_ui.cur_menu = 2;
+                                current-menu = 2;
+                            }
+                        }
                     }
                 }
             }
         }
-        Rectangle {
-            background: #619eff;
+        
+        main_ui := MainUi {
+            cur_menu: 0;
         }
     }
 }
