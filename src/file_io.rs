@@ -13,6 +13,7 @@ pub struct WavInfo {
     pub data_rate: u32,
     pub data_block_size: u32,
     pub bit_depth: u32,
+    pub byte_depth: u32,
     pub chunks: HashMap<String, (u64, u32)>, // {chunk_name: (position, chunk_size)}
     pub file_size: u32,
     pub audio_duration: f32,
@@ -37,6 +38,7 @@ impl WavInfo {
             data_rate: sample_rate * byte_depth * channels as u32,
             data_block_size: byte_depth * channels as u32,
             bit_depth,
+            byte_depth: bit_depth / 8,
             chunks,
             file_size,
             audio_duration,
@@ -287,7 +289,7 @@ pub fn read_data_interleaved_unchecked<T: Read>(
     file_info: &WavInfo,
     data_len: usize,
 ) -> Vec<f32> {
-    let byte_depth = file_info.bit_depth as usize / 8;
+    let byte_depth = file_info.byte_depth as usize;
     let mut data = vec![0; data_len * byte_depth];
 
     match f.read_exact(&mut data) {
