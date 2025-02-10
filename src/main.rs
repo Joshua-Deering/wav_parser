@@ -20,13 +20,7 @@ use util::*;
 //use std::time::Duration;
 //use std::{thread, thread::sleep};
 
-//use console_menu::{Menu, MenuOption, MenuProps};
-//use cpal::{
-//    traits::{DeviceTrait, HostTrait, StreamTrait},
-//    Data, Device, Host, OutputCallbackInfo, SampleRate, StreamConfig,
-//};
-
-use slint::{ModelRc, SharedString, VecModel};
+use slint::{run_event_loop, ModelRc, SharedString, Timer, TimerMode, VecModel};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -39,7 +33,7 @@ slint::include_modules!();
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let main_window = MainWindow::new()?;
 
-    let player: Rc<RefCell<Option<AudioPlayer>>> = Rc::new(RefCell::new(None));
+    let mut player: Rc<RefCell<Option<AudioPlayer>>> = Rc::new(RefCell::new(None));
 
     let init_ptr = main_window.as_weak();
     main_window.on_init_menu(move |menu: i32| {
@@ -57,6 +51,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 main_window.set_selected_file("".into());
             },
+            _ => {}
+        }
+    });
+
+    let close_menu_player_ptr = Rc::clone(&player);
+    let close_menu_window_ptr = main_window.as_weak();
+    main_window.on_close_menu(move | menu: i32 | {
+        let main_window = close_menu_window_ptr.upgrade().unwrap();
+        match menu {
+            0 => { 
+                *close_menu_player_ptr.borrow_mut() = None;
+                main_window.set_slider_pos(0.);
+                main_window.set_is_playing(false);
+                main_window.set_selected_file("".into());
+            }
             _ => {}
         }
     });
@@ -84,12 +93,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         let audio_player_ref = Rc::clone(&player);
+        main_window.on_slider_released(move | value: f32 | {
+            if let Some(ref mut player) = *audio_player_ref.borrow_mut() {
+                player.set_progress(value / 100.);
+            }
+        });
+    }
+
+    {
+        let audio_player_ref = Rc::clone(&player);
         main_window.on_file_select(move |file: SharedString| {
             *audio_player_ref.borrow_mut() = Some(AudioPlayer::new(file.into()));
         });
     }
 
-    main_window.run()?;
+    let timer_ptr = main_window.as_weak();
+    let audio_player_timer_ref = Rc::clone(&player);
+    let timer = Timer::default();
+    timer.start(TimerMode::Repeated, std::time::Duration::from_millis(50), move || {
+        let main_window = timer_ptr.upgrade().unwrap();
+        if let Some(ref player) = *audio_player_timer_ref.borrow() {
+            main_window.set_slider_pos(player.get_progress() * 100.);
+        }
+    });
+
+    main_window.show()?;
+    run_event_loop()?;
 
     //let menu_options = vec![
     //    MenuOption::new("Play Audio", || play_audio_menu()),

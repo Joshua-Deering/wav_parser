@@ -1,14 +1,18 @@
-import {Button, ComboBox} from "std-widgets.slint";
+import {Button, ComboBox, Slider} from "std-widgets.slint";
+import {PlayerProgressBar} from "./player-progress-bar.slint";
 
 component MainUi {
     callback toggle_play(bool);
     callback file_select(string);
+    callback slider_released(float);
 
     in property <int> cur_menu;
     
     in property <[string]> audio_files;
     in-out property <bool> is_playing: false;
     in-out property <string> selected_file: "";
+
+    in-out property <float> slider_pos: 0;
     
     if (cur_menu == 0): VerticalLayout {
         width: 100%;
@@ -33,18 +37,34 @@ component MainUi {
                     current-index: -1;
                     selected => {
                         root.selected_file = self.current-value;
+                        root.is_playing = false;
                         root.file_select(self.current-value);
                     }
                 }
             }
-            Button {
-                width: 80px;
-                height: 40px;
-                x: (root.width / 2) - 40px;
-                text: root.is_playing ? "stop" : "start";
-                clicked => {
-                    root.is_playing = !root.is_playing;
-                    toggle_play(root.is_playing);
+            VerticalLayout {
+                alignment: end;
+                padding-bottom: 5px;
+                spacing: 5px;
+                Button {
+                    width: 80px;
+                    height: 40px;
+                    x: (root.width / 2) - 40px;
+                    text: root.is_playing ? "stop" : "start";
+                    clicked => {
+                        root.is_playing = !root.is_playing;
+                        toggle_play(root.is_playing);
+                    }
+                }
+                Rectangle {
+                    progress-bar := PlayerProgressBar {
+                        enabled: root.is_playing;
+                        width: 400px;
+                        value: root.slider_pos;
+                        released(pos) => {
+                            root.slider_released(self.value)
+                        }
+                    }
                 }
             }
         }
@@ -106,7 +126,11 @@ export component MainWindow inherits Window {
     callback toggle_play <=> main_ui.toggle_play;
     callback file_select <=> main_ui.file_select;
 
+    in-out property slider_pos <=> main_ui.slider_pos;
+    callback slider_released <=> main_ui.slider_released;
+
     callback init_menu(menu: int);
+    callback close_menu(menu: int);
 
     init => {
         init_menu(0);
@@ -125,8 +149,9 @@ export component MainWindow inherits Window {
                         bg: #347bed;
                         btn_pressed() => {
                             if (current-menu != 0) {
-                                init_menu(0);
+                                close_menu(main_ui.cur_menu);
                                 main_ui.cur_menu = 0;
+                                init_menu(0);
                                 current-menu = 0;
                             }
                         }
@@ -139,8 +164,9 @@ export component MainWindow inherits Window {
                         bg: #347bed;
                         btn_pressed() => {
                             if (current-menu != 1) {
-                                init_menu(1);
+                                close_menu(main_ui.cur_menu);
                                 main_ui.cur_menu = 1;
+                                init_menu(1);
                                 current-menu = 1;
                             }
                         }
@@ -153,8 +179,9 @@ export component MainWindow inherits Window {
                         bg: #347bed;
                         btn_pressed() => {
                             if (current-menu != 2) {
-                                init_menu(2);
+                                close_menu(main_ui.cur_menu);
                                 main_ui.cur_menu = 2;
+                                init_menu(2);
                                 current-menu = 2;
                             }
                         }

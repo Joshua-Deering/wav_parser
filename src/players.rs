@@ -19,6 +19,7 @@ impl AudioPlayer {
         let meta = read_wav_meta(&mut reader);
         
         let internal_player = Arc::new(Mutex::new(FilePlayer::new_from_reader(reader, meta.clone())));
+        internal_player.lock().unwrap().paused = true;
 
         let sample_rate = meta.sample_rate;
         
@@ -53,13 +54,23 @@ impl AudioPlayer {
     }
 
     pub fn start(&mut self) {
+        self.internal_player.lock().unwrap().paused = false;
         self.stream.play().unwrap();
         self.playing = true;
     }
 
     pub fn pause(&mut self) {
+        self.internal_player.lock().unwrap().paused = true;
         self.stream.pause().unwrap();
         self.playing = false;
+    }
+
+    pub fn set_progress(&mut self, prog: f32) {
+        self.internal_player.lock().unwrap().set_progress(prog);
+    }
+
+    pub fn get_progress(&self) -> f32 {
+        self.internal_player.lock().unwrap().progress
     }
 }
 
@@ -133,10 +144,13 @@ impl Play for SignalPlayer {
 pub struct FilePlayer {
     pub file_meta: WavInfo,
     pub finished: bool,
+    pub paused: bool,
+    pub progress: f32,
     reader: BufReader<File>,
     pos: usize,
     start_pos: usize,
     end_pos: usize,
+    size: usize,
 }
 
 impl FilePlayer {
@@ -153,10 +167,13 @@ impl FilePlayer {
         Self {
             file_meta,
             finished: false,
+            paused: false,
+            progress: 0.,
             reader,
             pos: 0,
             start_pos,
             end_pos,
+            size: end_pos - start_pos,
         }
     }
 
@@ -166,22 +183,40 @@ impl FilePlayer {
             .seek(SeekFrom::Start(file_meta.chunks.get("data").unwrap().0))
             .unwrap();
         let start_pos = reader.stream_position().unwrap() as usize;
-        let end_pos = (file_meta.file_size / (file_meta.bit_depth / 8)) as usize;
+        let end_pos = start_pos + file_meta.chunks.get("data").unwrap().1 as usize;
         Self {
             file_meta,
             finished: false,
+            paused: false,
+            progress: 0.,
             reader,
             pos: 0,
             start_pos,
             end_pos,
+            size: end_pos - start_pos,
         }
+    }
+
+    pub fn set_progress(&mut self, prog: f32) {
+        let mut new_pos = (prog * self.size as f32) as usize; 
+        //this pos must be a multiple of the bit depth and channels
+        new_pos -= new_pos % self.file_meta.data_block_size as usize;
+
+        new_pos = new_pos.clamp(self.start_pos, self.end_pos);
+
+        self.pos = new_pos;
+        self.reader.seek(SeekFrom::Start(self.pos as u64)).unwrap();
     }
 }
 
 impl Play for FilePlayer {
     fn next_chunk(&mut self, data: &mut Data) {
+        if self.paused {
+            return;
+        }
+
         let dat_slice = data.as_slice_mut().unwrap();
-        if self.pos + dat_slice.len() >= self.end_pos {
+        if self.pos + dat_slice.len() * self.file_meta.byte_depth as usize >= self.end_pos {
             self.finished = true;
             return;
         }
@@ -190,7 +225,8 @@ impl Play for FilePlayer {
             read_data_interleaved_unchecked(&mut self.reader, &self.file_meta, dat_slice.len());
         dat_slice[..].clone_from_slice(&data);
 
-        self.pos += data.len();
+        self.pos += data.len() * self.file_meta.byte_depth as usize;
+        self.progress = self.pos as f32 / (self.size) as f32;
     }
 }
 
