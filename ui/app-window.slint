@@ -11,8 +11,14 @@ component MainUi {
     in property <[string]> audio_files;
     in-out property <bool> is_playing: false;
     in-out property <string> selected_file: "";
+    in property <float> file_duration;
 
     in-out property <float> slider_pos: 0;
+    out property <bool> slider_pressed;
+
+    pure function format_time(seconds: float) -> string {
+        return floor(seconds / 60) + ":" + (floor(Math.mod(seconds, 60)) < 10 ? "0" : "") + floor(Math.mod(seconds, 60));
+    }
     
     if (cur_menu == 0): VerticalLayout {
         width: 100%;
@@ -25,6 +31,7 @@ component MainUi {
             background: #4287f5;
             height: 100px;
             width: 100%;
+
             VerticalLayout {
                 alignment: center;
                 Text {
@@ -57,10 +64,18 @@ component MainUi {
                     }
                 }
                 Rectangle {
-                    progress-bar := PlayerProgressBar {
+                    progress_bar := PlayerProgressBar {
                         enabled: root.is_playing;
                         width: 400px;
                         value: root.slider_pos;
+                        left-label: format_time(self.value / 100 * file_duration);
+                        right-label: format_time(file_duration);
+                        handle-pressed-changed(state) => {
+                            root.slider_pressed = state;
+                        }
+                        changed(value) => {
+                            root.slider_pos = value;
+                        }
                         released(pos) => {
                             root.slider_released(self.value)
                         }
@@ -121,12 +136,14 @@ export component MainWindow inherits Window {
     property <int> current-menu;
 
     in property <[string]> audio_files <=> main_ui.audio_files;
+    in property <float> file_duration <=> main_ui.file_duration;
     in-out property <bool> is_playing <=> main_ui.is_playing;
     in-out property <string> selected_file <=> main_ui.selected_file;
     callback toggle_play <=> main_ui.toggle_play;
     callback file_select <=> main_ui.file_select;
 
     in-out property slider_pos <=> main_ui.slider_pos;
+    out property <bool> slider_pressed <=> main_ui.slider_pressed;
     callback slider_released <=> main_ui.slider_released;
 
     callback init_menu(menu: int);

@@ -102,8 +102,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         let audio_player_ref = Rc::clone(&player);
+        let file_sel_ptr = main_window.as_weak();
         main_window.on_file_select(move |file: SharedString| {
             *audio_player_ref.borrow_mut() = Some(AudioPlayer::new(file.into()));
+            let main_window = file_sel_ptr.upgrade().unwrap();
+            let file_dur = audio_player_ref.borrow().as_ref().unwrap().duration;
+            main_window.set_file_duration(file_dur);
         });
     }
 
@@ -112,8 +116,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let timer = Timer::default();
     timer.start(TimerMode::Repeated, std::time::Duration::from_millis(50), move || {
         let main_window = timer_ptr.upgrade().unwrap();
-        if let Some(ref player) = *audio_player_timer_ref.borrow() {
-            main_window.set_slider_pos(player.get_progress() * 100.);
+        if let Some(ref mut player) = *audio_player_timer_ref.borrow_mut() {
+            if player.is_finished() {
+                main_window.set_is_playing(false);
+                player.set_finished(false);
+            }
+            if !main_window.get_slider_pressed() {
+                main_window.set_slider_pos(player.get_progress() * 100.);
+            }
         }
     });
 

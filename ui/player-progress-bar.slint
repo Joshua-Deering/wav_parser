@@ -1,9 +1,11 @@
-
 export component PlayerProgressBar {
     in property enabled <=> touch-area.enabled;
     in property <float> minimum: 0;
     in property <float> maximum: 100;
     in-out property <float> value: minimum;
+
+    in property <string> left-label;
+    in property <string> right-label;
 
     in property <color> handle-color: blue;
     in property <color> slider-color: darkgray;
@@ -15,10 +17,15 @@ export component PlayerProgressBar {
     property <length> handle-y: root.y;
     property <length> handle-width: 4px;
     property <length> handle-height: root.height;
+
+    property <length> slider-size: root.width * 0.8;
+    property <length> slider-offset: root.width / 10;
     
     out property <bool> handle-has-hover: touch-area.mouse-x >= root.handle-x && touch-area.mouse-x <= root.handle-x + root.handle-width &&
         touch-area.mouse-y >= root.handle-y && touch-area.mouse-y <= root.handle-y + root.handle-height;
     out property <bool> handle-pressed;
+
+    callback handle-pressed-changed(state: bool);
 
     callback changed(value: float);
     callback released(value: float);
@@ -39,15 +46,17 @@ export component PlayerProgressBar {
                     root.released(root.value);
                 }
                 root.handle-pressed = false;
+                handle-pressed-changed(false);
                 return;
             }
 
             if (!root.handle-has-hover) {
-                root.set-value(root.size-to-value(touch-area.mouse-x, root.width));
+                root.set-value(root.size-to-value(touch-area.mouse-x, slider-size));
             }
 
             self.pressed-value = value;
             root.handle-pressed = true;
+            handle-pressed-changed(true);
         }
 
         moved => {
@@ -55,21 +64,39 @@ export component PlayerProgressBar {
                 return;
             }
 
-            root.set-value(self.pressed-value + root.size-to-value(touch-area.mouse-x - touch-area.pressed-x, root.width));
+            root.set-value(self.pressed-value + root.size-to-value(touch-area.mouse-x - touch-area.pressed-x + slider-offset, slider-size));
         }
     }
 
-    Rectangle {
+    HorizontalLayout {
         width: 100%;
-        height: root.height/2;
-        background: slider-color;
-        border-radius: 3px;
+        height: 100%;
+        alignment: center;
+        spacing: 3px;
+        Text {
+            text: left-label;
+            horizontal-alignment: right;
+            width: root.width * 0.10;
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            height: 6px;
+            min-width: root.width * 0.8;
+            y: root.height / 2 - 3px;
+            background: slider-color;
+            border-radius: 3px;
+        }
+        Text {
+            text: right-label;
+            horizontal-alignment: left;
+            width: root.width * 0.10;
+        }
     }
 
     handle := Rectangle {
         width: handle-width;
         height: handle-height;
-        x: root.value / (root.maximum - root.minimum) * root.width;
+        x: root.value / (root.maximum - root.minimum) * slider-size + slider-offset;
 
         border-radius: 2px;
         background: handle-pressed ? handle-color.darker(60%) : handle-has-hover ? handle-color.darker(20%) : handle-color.darker(40%);
@@ -78,7 +105,7 @@ export component PlayerProgressBar {
 
 
     pure function size-to-value(size: length, range: length) -> float {
-        size * (root.maximum - root.minimum) / range;
+        (size - slider-offset) * (root.maximum - root.minimum) / range;
     }
 
     function set-value(value: float) {
@@ -86,7 +113,6 @@ export component PlayerProgressBar {
             return;
         }
 
-        root.value = max(root.minimum, min(root.maximum, value));
-        root.changed(root.value);
+        root.changed(max(root.minimum, min(root.maximum, value)));
     }
 }

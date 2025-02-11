@@ -10,6 +10,7 @@ use crate::file_io::{read_data_interleaved_unchecked, read_wav_meta, WavInfo};
 pub struct AudioPlayer {
     internal_player: Arc<Mutex<FilePlayer>>,
     pub playing: bool,
+    pub duration: f32,
     stream: Stream,
 }
 
@@ -44,24 +45,25 @@ impl AudioPlayer {
                 move |_err| {},
                 None
             ).unwrap();
-        stream.pause().unwrap();
+        stream.play().unwrap();
 
         Self {
             internal_player,
             playing: false,
+            duration: meta.audio_duration,
             stream,
         }
     }
 
     pub fn start(&mut self) {
         self.internal_player.lock().unwrap().paused = false;
-        self.stream.play().unwrap();
+        //self.stream.play().unwrap();
         self.playing = true;
     }
 
     pub fn pause(&mut self) {
         self.internal_player.lock().unwrap().paused = true;
-        self.stream.pause().unwrap();
+        //self.stream.pause().unwrap();
         self.playing = false;
     }
 
@@ -71,6 +73,14 @@ impl AudioPlayer {
 
     pub fn get_progress(&self) -> f32 {
         self.internal_player.lock().unwrap().progress
+    }
+    
+    pub fn is_finished(&self) -> bool {
+        self.internal_player.lock().unwrap().finished
+    }
+
+    pub fn set_finished(&mut self, state: bool) {
+        self.internal_player.lock().unwrap().finished = state;
     }
 }
 
@@ -212,6 +222,14 @@ impl FilePlayer {
 impl Play for FilePlayer {
     fn next_chunk(&mut self, data: &mut Data) {
         if self.paused {
+            return;
+        }
+        if self.finished {
+            if self.pos == self.start_pos { return; }
+            self.pos = self.start_pos;
+            self.reader.seek(SeekFrom::Start(self.pos as u64)).unwrap();
+            self.progress = 0.;
+            self.paused = true;
             return;
         }
 
