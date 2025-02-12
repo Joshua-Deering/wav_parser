@@ -1,9 +1,10 @@
-//mod audio;
-//mod fft;
+mod audio;
+mod fft;
 mod file_io;
-//mod img_generator;
+mod img_generator;
 mod players;
 mod util;
+use img_generator::generate_waveform;
 use players::AudioPlayer;
 //mod parametric_eq;
 //
@@ -23,6 +24,7 @@ use util::*;
 use slint::{run_event_loop, ModelRc, SharedString, Timer, TimerMode, VecModel};
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::thread;
 
 slint::include_modules!();
 
@@ -33,7 +35,9 @@ slint::include_modules!();
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let main_window = MainWindow::new()?;
 
-    let mut player: Rc<RefCell<Option<AudioPlayer>>> = Rc::new(RefCell::new(None));
+    main_window.on_render_waveform(generate_waveform);
+
+    let player: Rc<RefCell<Option<AudioPlayer>>> = Rc::new(RefCell::new(None));
 
     let init_ptr = main_window.as_weak();
     main_window.on_init_menu(move |menu: i32| {

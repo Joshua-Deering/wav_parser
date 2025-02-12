@@ -1,6 +1,66 @@
-use image::{Pixel, Rgb, RgbImage, RgbaImage, Rgba};
+use std::{io::BufReader, fs::File};
 
-use crate::{audio::ShortTimeDftData, hue_to_rgb};
+use image::{Pixel, Rgb, RgbImage, RgbaImage, Rgba};
+use slint::{Image, Rgba8Pixel, SharedPixelBuffer, SharedString};
+
+use crate::{audio::ShortTimeDftData, file_io::{read_wav_meta, read_data}, hue_to_rgb};
+
+pub fn generate_waveform(audio_file: SharedString, imgx: f32, imgy: f32) -> Image {
+    if audio_file.trim().is_empty() {
+        return Image::default();
+    }
+
+    let mut file = BufReader::new(File::open(format!("./res/audio/{}", audio_file)).unwrap());
+    let file_info = read_wav_meta(&mut file);
+
+    let duration = file_info.audio_duration;
+    let channels = file_info.channels as usize;
+
+    let samples = read_data(&mut file, file_info, 0., duration).unwrap();
+    let total_samples = samples[0].len();
+    let samples_per_pixel = total_samples as f32 / imgx;
+
+    let middle = (imgy as u32 / 2) as f32;
+
+    let mut shared_buf = SharedPixelBuffer::new(imgx as u32, imgy as u32);
+    let buf = shared_buf.make_mut_slice();
+   for x in 0..(imgx as usize) {
+        // Determine the range of sample indices that fall into this x column.
+        let start = (x as f32 * samples_per_pixel).floor() as usize;
+        let end = ((x as f32 + 1.0) * samples_per_pixel).ceil() as usize;
+
+        // Set initial min/max values
+        let mut min_val = f32::INFINITY;
+        let mut max_val = f32::NEG_INFINITY;
+
+        // Process every sample in this bin
+        for i in start.min(total_samples)..end.min(total_samples) {
+            // Average across all channels
+            let mut sum = 0.0;
+            for ch in 0..channels {
+                sum += samples[ch][i];
+            }
+            sum /= channels as f32;
+
+            if sum < min_val { min_val = sum; }
+            if sum > max_val { max_val = sum; }
+        }
+
+        // Map the amplitude values to y coordinates
+        let y_min = (middle + min_val * middle).round() as usize;
+        let y_max = (middle + max_val * middle).round() as usize;
+
+        // Draw a vertical line in this column from y_min to y_max
+        // (Ensure y_min is not greater than y_max)
+        for y in y_min.min(y_max)..=y_min.max(y_max) {
+            // Ensure we don't go out of bounds
+            if y < imgy as usize {
+                buf[y * (imgx as usize) + x] = Rgba8Pixel::new(0, 255, 0, 255);
+            }
+        }
+    } 
+    Image::from_rgba8(shared_buf)
+}
 
 pub fn generate_waveform_img(
     target_dir: String,

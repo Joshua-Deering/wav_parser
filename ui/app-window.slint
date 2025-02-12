@@ -5,6 +5,7 @@ component MainUi {
     callback toggle_play(bool);
     callback file_select(string);
     callback slider_released(float);
+    callback render_waveform(string, length, length) -> image;
 
     in property <int> cur_menu;
     
@@ -15,6 +16,10 @@ component MainUi {
 
     in-out property <float> slider_pos: 0;
     out property <bool> slider_pressed;
+
+    property <length> imgx: root.width;
+    property <length> imgy: 100px;
+    property <image> waveform_img;
 
     pure function format_time(seconds: float) -> string {
         return floor(seconds / 60) + ":" + (floor(Math.mod(seconds, 60)) < 10 ? "0" : "") + floor(Math.mod(seconds, 60));
@@ -46,6 +51,7 @@ component MainUi {
                         root.selected_file = self.current-value;
                         root.is_playing = false;
                         root.file_select(self.current-value);
+                        root.waveform_img = root.render_waveform(self.current-value, root.imgx, root.imgy);
                     }
                 }
             }
@@ -83,9 +89,23 @@ component MainUi {
                 }
             }
         }
-        waveform := Image {
+        Rectangle {
             height: 100px;
             width: 100%;
+            background: #4287f5;
+            Image {
+                height: 100px;
+                width: 100%;
+                source: waveform_img;
+                image-rendering: pixelated;
+            }
+            Rectangle {
+                background: white;
+                visible: root.is_playing;
+                width: 1px;
+                height: 100px;
+                x: root.slider_pos / 100 * root.width;
+            }
         }
     }
 
@@ -139,8 +159,10 @@ export component MainWindow inherits Window {
     in property <float> file_duration <=> main_ui.file_duration;
     in-out property <bool> is_playing <=> main_ui.is_playing;
     in-out property <string> selected_file <=> main_ui.selected_file;
+
     callback toggle_play <=> main_ui.toggle_play;
     callback file_select <=> main_ui.file_select;
+    callback render_waveform <=> main_ui.render_waveform;
 
     in-out property slider_pos <=> main_ui.slider_pos;
     out property <bool> slider_pressed <=> main_ui.slider_pressed;
