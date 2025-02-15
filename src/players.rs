@@ -5,17 +5,18 @@ use std::io::{BufReader, Seek, SeekFrom};
 use std::sync::{Mutex, Arc};
 
 use crate::file_io::{read_data_interleaved_unchecked, read_wav_meta, WavInfo};
+use crate::parametric_eq::ParametricEq;
 //use crate::audio::{WindowFunction, ShortTimeDftData, do_short_time_fourier_transform};
 
 pub struct AudioPlayer {
     internal_player: Arc<Mutex<FilePlayer>>,
+    stream: Stream,
     pub playing: bool,
     pub duration: f32,
-    stream: Stream,
 }
 
 impl AudioPlayer {
-    pub fn new(file_path: String) -> Self {
+    pub fn new(file_path: String, parametric_eq: Arc<Mutex<ParametricEq>>) -> Self {
         let mut reader = BufReader::new(File::open(format!("./res/audio/{}", file_path)).unwrap());
         let meta = read_wav_meta(&mut reader);
         
@@ -35,12 +36,14 @@ impl AudioPlayer {
             .config();
 
         let stream_player_copy = Arc::clone(&internal_player);
+        let eq_copy = Arc::clone(&parametric_eq);
         let stream = device
             .build_output_stream_raw(
                 &config,
                 SampleFormat::F32,
                 move |data: &mut Data, _: &OutputCallbackInfo| {
                     stream_player_copy.lock().unwrap().next_chunk(data);
+                    eq_copy.lock().unwrap().process(data.as_slice_mut().unwrap());
                 },
                 move |_err| {},
                 None
@@ -49,9 +52,9 @@ impl AudioPlayer {
 
         Self {
             internal_player,
+            stream,
             playing: false,
             duration: meta.audio_duration,
-            stream,
         }
     }
 

@@ -4,15 +4,12 @@ mod file_io;
 mod img_generator;
 mod players;
 mod util;
-use img_generator::generate_waveform;
-use players::AudioPlayer;
-//mod parametric_eq;
+mod parametric_eq;
 //
 //use audio::WindowFunction;
 //use file_io::{read_data, read_stdft_from_file, read_wav_meta, write_stdft_to_file, WavInfo};
 //use img_generator::{generate_spectrogram_img, generate_waveform_img};
 //use players::{FilePlayer, Play, SignalPlayer};
-use util::*;
 
 //use core::f32;
 //use std::fs::File;
@@ -21,10 +18,20 @@ use util::*;
 //use std::time::Duration;
 //use std::{thread, thread::sleep};
 
-use slint::{run_event_loop, ModelRc, SharedString, Timer, TimerMode, VecModel};
+use util::*;
+use file_io::read_wav_meta;
+use img_generator::{generate_eq_response, generate_waveform};
+use players::AudioPlayer;
+use parametric_eq::ParametricEq;
+
+use slint::{run_event_loop, Image, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
+use cpal::{traits::{DeviceTrait, HostTrait}, SampleRate, SupportedOutputConfigs, SupportedStreamConfigRange};
+
+use std::{fs::File, ops::Deref};
 use std::cell::RefCell;
+use std::io::BufReader;
 use std::rc::Rc;
-use std::thread;
+use std::sync::{Mutex, Arc};
 
 slint::include_modules!();
 
@@ -38,7 +45,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     main_window.on_render_waveform(generate_waveform);
 
     let player: Rc<RefCell<Option<AudioPlayer>>> = Rc::new(RefCell::new(None));
+    let player_eq = Arc::new(Mutex::new(ParametricEq::new(vec![], 48000)));
 
+
+    // UI Initialization Logic (called when any menu is opened) ----------------
     let init_ptr = main_window.as_weak();
     main_window.on_init_menu(move |menu: i32| {
         let main_window = init_ptr.upgrade().unwrap();
@@ -50,7 +60,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .map(|e| SharedString::from(e))
                     .collect();
 
-                let model_rc = Rc::new(VecModel::from(files));
+                let host = cpal::default_host();
+                let device = host.default_output_device().unwrap();
+                let supported_configs: Vec<_> = device.supported_output_configs().unwrap().collect();
+
+                let mut supported_files: Vec<SharedString> = vec![];
+                for f in files {
+                    let mut reader = BufReader::new(File::open(format!("./res/audio/{}", f)).unwrap());
+                    let f_info = read_wav_meta(&mut reader);
+
+                    if let Some(_) = supported_configs.iter().find(|e| {
+                            e.max_sample_rate() == SampleRate(f_info.sample_rate)
+                    }) {
+                        supported_files.push(f);
+                    }
+                }
+
+                let model_rc = Rc::new(VecModel::from(supported_files));
                 main_window.set_audio_files(ModelRc::from(model_rc.clone()));
 
                 main_window.set_selected_file("".into());
@@ -59,6 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // UI Closure logic (called when any menu is closed) -----------------------
     let close_menu_player_ptr = Rc::clone(&player);
     let close_menu_window_ptr = main_window.as_weak();
     main_window.on_close_menu(move | menu: i32 | {
@@ -74,6 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // Audio Playback Stop/Start Logic -----------------------------------------
     {
         let audio_player_ref = Rc::clone(&player);
         let play_ptr = main_window.as_weak();
@@ -95,6 +123,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // Parametric Eq Node Initialization logic ---------------------------------
+    main_window.on_init_eq_nodes(move | n: i32 | {
+        let mut nodes = Vec::new();
+        let min_freq: f32 = 20.;
+        let max_freq: f32 = 20000.;
+        for i in 0..n {
+            let freq = (min_freq * (max_freq / min_freq).powf(i as f32 / (n as f32 - 1.0))).round();
+            nodes.push(NodeData { gain: (i * (-1i32).pow(i as u32)) as f32, freq, q: 1.0 });
+        }
+        return ModelRc::new(Rc::new(VecModel::from(nodes)));
+    });
+
+    // Draw Eq Image & set audio EQ
+    let player_eq_ptr = Arc::clone(&player_eq);
+    main_window.on_request_eq_response(move | 
+        eq_nodes: ModelRc<NodeData>,
+        low_freq_bound: f32, high_freq_bound: f32,
+        min_gain: f32, max_gain: f32,
+        imgx: f32, imgy: f32 | {
+        let mut player_eq = player_eq_ptr.lock().unwrap();
+        player_eq.reset();
+        if let Some(nodes) = eq_nodes.as_any().downcast_ref::<VecModel<NodeData>>() {
+            for n in nodes.iter() {
+                player_eq.add_node(n.freq as u32, n.gain, n.q);
+            }
+        }
+
+        generate_eq_response(player_eq.deref(), low_freq_bound as u32, high_freq_bound as u32, min_gain, max_gain, imgx as u32, imgy as u32)
+    });
+
+    // Slider-to-audio behaviour -----------------------------------------------
     {
         let audio_player_ref = Rc::clone(&player);
         main_window.on_slider_released(move | value: f32 | {
@@ -104,17 +163,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    {
-        let audio_player_ref = Rc::clone(&player);
-        let file_sel_ptr = main_window.as_weak();
-        main_window.on_file_select(move |file: SharedString| {
-            *audio_player_ref.borrow_mut() = Some(AudioPlayer::new(file.into()));
-            let main_window = file_sel_ptr.upgrade().unwrap();
-            let file_dur = audio_player_ref.borrow().as_ref().unwrap().duration;
-            main_window.set_file_duration(file_dur);
-        });
-    }
-
+    // Slider update logic -----------------------------------------------------
     let timer_ptr = main_window.as_weak();
     let audio_player_timer_ref = Rc::clone(&player);
     let timer = Timer::default();
@@ -130,6 +179,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     });
+
+    // On Audio file select ----------------------------------------------------
+    {
+        let audio_player_ref = Rc::clone(&player);
+        let file_sel_ptr = main_window.as_weak();
+        let player_eq_ptr_fs = Arc::clone(&player_eq);
+        main_window.on_file_select(move |file: SharedString| {
+
+            *audio_player_ref.borrow_mut() = Some(AudioPlayer::new(file.into(), Arc::clone(&player_eq_ptr_fs)));
+            let main_window = file_sel_ptr.upgrade().unwrap();
+            let file_dur = audio_player_ref.borrow().as_ref().unwrap().duration;
+            main_window.set_file_duration(file_dur);
+        });
+    }
 
     main_window.show()?;
     run_event_loop()?;

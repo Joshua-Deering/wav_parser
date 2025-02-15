@@ -1,4 +1,5 @@
 use std::f32::consts::TAU;
+use crate::util::logspace;
 
 pub struct ParametricEq {
     nodes: Vec<Biquad>,
@@ -7,10 +8,15 @@ pub struct ParametricEq {
 
 impl ParametricEq {
     pub fn new(nodes: Vec<Biquad>, sample_rate: u32) -> Self {
+
         Self {
             nodes,
             sample_rate,
         }
+    }
+    
+    pub fn reset(&mut self) {
+        self.nodes = vec![];
     }
 
     pub fn add_biquad(&mut self, node: Biquad) {
@@ -41,6 +47,42 @@ impl ParametricEq {
         }
 
         test_pts
+    }
+
+    pub fn get_freq_response_log(&self, lower_bound: u32, upper_bound: u32, num_points: usize) -> Vec<(u32, f32)> {
+        let mut test_pts = vec![(0, 0.); num_points as usize];
+        for (test_freq, i) in logspace(lower_bound, upper_bound, num_points).zip(0..num_points) {
+            let mut sum = 0.;
+            for node in &self.nodes {
+                sum += (20. * node.calc_response(test_freq as f32).log10()) - node.ref_value;
+            }
+            test_pts[i] = (test_freq as u32, sum);
+        }
+
+        test_pts
+    }
+}
+
+pub enum FilterType {
+    PEAKING,
+    LPF,
+    HPF,
+//    BPF,
+    NOTCH,
+    LOWSHELF,
+    HIGHSHELF
+}
+
+pub struct EqNode {
+    node_type: FilterType,
+    freq: f32,
+    gain: f32,
+    q: f32,
+}
+
+impl EqNode { 
+    pub fn new(freq: f32, gain: f32, q: f32, node_type: FilterType) -> Self {
+        Self { node_type, freq, gain, q }
     }
 }
 

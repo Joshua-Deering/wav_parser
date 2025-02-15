@@ -23,6 +23,16 @@ pub fn query_directory(dir: &str) -> impl Iterator<Item = String> {
     entries.into_iter().map(|e| e.to_string_lossy().to_string())
 }
 
+pub fn logspace(min: u32, max: u32, num_points: usize) -> impl Iterator<Item = f32> {
+    let min_f = min as f32;
+    let max_f = max as f32;
+    let log_min = min_f.ln();
+    let log_max = max_f.ln();
+    let step = (log_max - log_min) / ((num_points - 1) as f32);
+    
+    (0..num_points).map(move |i| (log_min + step * (i as f32)).exp())
+}
+
 #[allow(unused)]
 pub fn hue_to_rgb(h: f32, s: f32, v: f32) -> [u8; 3] {
     let c = v * s;

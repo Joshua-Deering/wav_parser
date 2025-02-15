@@ -3,7 +3,7 @@ use std::{io::BufReader, fs::File};
 use image::{Pixel, Rgb, RgbImage, RgbaImage, Rgba};
 use slint::{Image, Rgba8Pixel, SharedPixelBuffer, SharedString};
 
-use crate::{audio::ShortTimeDftData, file_io::{read_wav_meta, read_data}, hue_to_rgb};
+use crate::{audio::ShortTimeDftData, ParametricEq, file_io::{read_wav_meta, read_data}, hue_to_rgb};
 
 pub fn generate_waveform(audio_file: SharedString, imgx: f32, imgy: f32) -> Image {
     if audio_file.trim().is_empty() {
@@ -89,6 +89,32 @@ pub fn generate_waveform_img(
     }
     
     imgbuf.save(target_dir)
+}
+
+pub fn generate_eq_response(param_eq: &ParametricEq, low_freq_bound: u32, high_freq_bound: u32, min_gain: f32, max_gain: f32, imgx: u32, imgy: u32) -> Image {
+    let resp = param_eq.get_freq_response_log(low_freq_bound, high_freq_bound, imgx as usize);
+
+    let x_log_ratio = 1. / ((high_freq_bound as f32).ln() - (low_freq_bound as f32).ln());
+    let center_y = imgy as f32 / 2.;
+
+    let mut shared_buf = SharedPixelBuffer::new(imgx, imgy);
+    let buf = shared_buf.make_mut_slice();
+    for (f, r) in resp {
+        let x_ratio = ((f as f32).ln() - (low_freq_bound as f32).ln()) * x_log_ratio;
+        let px_x = (x_ratio * imgx as f32) as usize;
+        let px_y = if r > 0. {
+            let ratio = (1. + r).ln() / (1. + max_gain).ln();
+            center_y - ratio * center_y
+        } else if r < 0. {
+            let ratio = (1. - r).ln() / (1. - min_gain).ln();
+            center_y + ratio * center_y
+        } else {
+            center_y
+        };
+        buf[px_y as usize * imgx as usize + px_x] = Rgba8Pixel::new(255, 255, 255, 255);
+    }
+
+    Image::from_rgba8(shared_buf)
 }
 
 pub fn generate_spectrogram_img(

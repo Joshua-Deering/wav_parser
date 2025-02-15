@@ -1,11 +1,14 @@
 import {Button, ComboBox, Slider} from "std-widgets.slint";
 import {PlayerProgressBar} from "./player-progress-bar.slint";
+import {ParametricEq, NodeData} from "./parametric-eq.slint";
 
 component MainUi {
     callback toggle_play(bool);
     callback file_select(string);
     callback slider_released(float);
     callback render_waveform(string, length, length) -> image;
+    pure callback init_eq_nodes(int) -> [NodeData];
+    pure callback request_eq_response([NodeData], float, float, float, float, length, length) -> image;
 
     in property <int> cur_menu;
     
@@ -30,15 +33,22 @@ component MainUi {
         height: 100%;
 
         Rectangle {
-            background: #4287f5;
+            param_eq := ParametricEq {
+                initialize_eq_nodes(n) => {
+                    root.init_eq_nodes(n)
+                }
+                request_eq_response(n, lf, hf, min_gain, max_gain, x, y) => {
+                    root.request_eq_response(n, lf, hf, min_gain, max_gain, x, y);
+                }
+            }
         }
         Rectangle {
             background: #4287f5;
-            height: 100px;
+            height: 75px;
             width: 100%;
 
             VerticalLayout {
-                alignment: center;
+                alignment: start;
                 Text {
                     text: "Select a file:";
                 }
@@ -48,10 +58,10 @@ component MainUi {
                     model: root.audio_files;
                     current-index: -1;
                     selected => {
-                        root.selected_file = self.current-value;
+                        root.selected_file = self.current_value;
                         root.is_playing = false;
-                        root.file_select(self.current-value);
-                        root.waveform_img = root.render_waveform(self.current-value, root.imgx, root.imgy);
+                        root.file_select(self.current_value);
+                        root.waveform_img = root.render_waveform(self.current_value, root.imgx, root.imgy);
                     }
                 }
             }
@@ -74,8 +84,8 @@ component MainUi {
                         enabled: root.is_playing;
                         width: 400px;
                         value: root.slider_pos;
-                        left-label: format_time(self.value / 100 * file_duration);
-                        right-label: format_time(file_duration);
+                        left_label: format_time(self.value / 100 * file_duration);
+                        right_label: format_time(file_duration);
                         handle-pressed-changed(state) => {
                             root.slider_pressed = state;
                         }
@@ -90,7 +100,7 @@ component MainUi {
             }
         }
         Rectangle {
-            height: 100px;
+            height: 80px;
             width: 100%;
             background: #4287f5;
             Image {
@@ -163,10 +173,12 @@ export component MainWindow inherits Window {
     callback toggle_play <=> main_ui.toggle_play;
     callback file_select <=> main_ui.file_select;
     callback render_waveform <=> main_ui.render_waveform;
+    callback slider_released <=> main_ui.slider_released;
+    pure callback init_eq_nodes <=> main_ui.init_eq_nodes;
+    pure callback request_eq_response <=> main_ui.request_eq_response;
 
     in-out property slider_pos <=> main_ui.slider_pos;
     out property <bool> slider_pressed <=> main_ui.slider_pressed;
-    callback slider_released <=> main_ui.slider_released;
 
     callback init_menu(menu: int);
     callback close_menu(menu: int);
