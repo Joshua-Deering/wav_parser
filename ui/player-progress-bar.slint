@@ -1,62 +1,62 @@
 export component PlayerProgressBar {
-    in property enabled <=> touch-area.enabled;
+    in property enabled <=> touch_area.enabled;
     in property <float> minimum: 0;
     in property <float> maximum: 100;
-    in-out property <float> value: minimum;
+    in_out property <float> value: minimum;
 
-    in property <string> left-label;
-    in property <string> right-label;
+    in property <string> left_label;
+    in property <string> right_label;
 
-    in property <color> handle-color: blue;
-    in property <color> slider-color: darkgray;
+    in property <color> handle_color: blue;
+    in property <color> slider_color: darkgray;
 
-    min-width: 100px;
-    min-height: 12px;
+    min_width: 100px;
+    min_height: 12px;
 
-    property <length> handle-x: minimum * 1px;
-    property <length> handle-y: root.y;
-    property <length> handle-width: 4px;
-    property <length> handle-height: root.height;
+    property <length> handle_x: minimum * 1px;
+    property <length> handle_y: root.y;
+    property <length> handle_width: 4px;
+    property <length> handle_height: root.height;
 
-    property <length> slider-size: root.width * 0.8;
-    property <length> slider-offset: root.width / 10;
+    property <length> slider_size: root.width * 0.8;
+    property <length> slider_offset: root.width / 10;
     
-    out property <bool> handle-has-hover: touch-area.mouse-x >= root.handle-x && touch-area.mouse-x <= root.handle-x + root.handle-width &&
-        touch-area.mouse-y >= root.handle-y && touch-area.mouse-y <= root.handle-y + root.handle-height;
-    out property <bool> handle-pressed;
+    out property <bool> handle_has_hover: touch_area.mouse_x >= root.handle_x && touch_area.mouse_x <= root.handle_x + root.handle_width &&
+        touch_area.mouse_y >= root.handle_y && touch_area.mouse_y <= root.handle_y + root.handle_height;
+    out property <bool> handle_pressed;
 
-    callback handle-pressed-changed(state: bool);
+    callback handle_pressed_changed(state: bool);
 
     callback changed(value: float);
     callback released(value: float);
 
-    touch-area := TouchArea {
-        property <float> pressed-value;            
+    touch_area := TouchArea {
+        property <float> pressed_value;            
         
         width: 100%;
         height: 100%;
 
-        pointer-event(event) => {
+        pointer_event(event) => {
             if (event.button != PointerEventButton.left) {
                 return;
             }
 
             if (event.kind == PointerEventKind.up) {
-                if (root.handle-pressed) {
+                if (root.handle_pressed) {
                     root.released(root.value);
                 }
-                root.handle-pressed = false;
-                handle-pressed-changed(false);
+                root.handle_pressed = false;
+                handle_pressed_changed(false);
                 return;
             }
 
-            if (!root.handle-has-hover) {
-                root.set-value(root.size-to-value(touch-area.mouse-x, slider-size));
+            if (!root.handle_has_hover) {
+                root.set_value(root.size_to_value(touch_area.mouse_x, slider_size));
             }
 
-            self.pressed-value = value;
-            root.handle-pressed = true;
-            handle-pressed-changed(true);
+            self.pressed_value = value;
+            root.handle_pressed = true;
+            handle_pressed_changed(true);
         }
 
         moved => {
@@ -64,7 +64,7 @@ export component PlayerProgressBar {
                 return;
             }
 
-            root.set-value(self.pressed-value + root.size-to-value(touch-area.mouse-x - touch-area.pressed-x + slider-offset, slider-size));
+            root.set_value(self.pressed_value + root.size_to_value(touch_area.mouse_x - touch_area.pressed_x + slider_offset, slider_size));
         }
     }
 
@@ -74,41 +74,41 @@ export component PlayerProgressBar {
         alignment: center;
         spacing: 3px;
         Text {
-            text: left-label;
-            horizontal-alignment: right;
+            text: left_label;
+            horizontal_alignment: right;
             width: root.width * 0.10;
         }
         Rectangle {
-            horizontal-stretch: 1;
+            horizontal_stretch: 1;
             height: 6px;
-            min-width: root.width * 0.8;
+            min_width: root.width * 0.8;
             y: root.height / 2 - 3px;
-            background: slider-color;
-            border-radius: 3px;
+            background: slider_color;
+            border_radius: 3px;
         }
         Text {
-            text: right-label;
-            horizontal-alignment: left;
+            text: right_label;
+            horizontal_alignment: left;
             width: root.width * 0.10;
         }
     }
 
     handle := Rectangle {
-        width: handle-width;
-        height: handle-height;
-        x: root.value / (root.maximum - root.minimum) * slider-size + slider-offset;
+        width: handle_width;
+        height: handle_height;
+        x: root.value / (root.maximum - root.minimum) * slider_size + slider_offset;
 
-        border-radius: 2px;
-        background: handle-pressed ? handle-color.darker(60%) : handle-has-hover ? handle-color.darker(20%) : handle-color.darker(40%);
+        border_radius: 2px;
+        background: handle_pressed ? handle_color.darker(60%) : handle_has_hover ? handle_color.darker(20%) : handle_color.darker(40%);
     }
     
 
 
-    pure function size-to-value(size: length, range: length) -> float {
-        (size - slider-offset) * (root.maximum - root.minimum) / range;
+    pure function size_to_value(size: length, range: length) -> float {
+        (size - slider_offset) * (root.maximum - root.minimum) / range;
     }
 
-    function set-value(value: float) {
+    function set_value(value: float) {
         if (root.value == value) {
             return;
         }
