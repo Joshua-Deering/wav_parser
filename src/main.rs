@@ -24,7 +24,7 @@ use img_generator::{generate_eq_response, generate_waveform};
 use players::AudioPlayer;
 use parametric_eq::ParametricEq;
 
-use slint::{run_event_loop, Image, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
+use slint::{run_event_loop, Image, Model, ModelRc, SharedPixelBuffer, SharedString, Timer, TimerMode, VecModel};
 use cpal::{traits::{DeviceTrait, HostTrait}, SampleRate, SupportedOutputConfigs, SupportedStreamConfigRange};
 
 use std::{fs::File, ops::Deref};
@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let player: Rc<RefCell<Option<AudioPlayer>>> = Rc::new(RefCell::new(None));
     let player_eq = Arc::new(Mutex::new(ParametricEq::new(vec![], 48000)));
-
+    let mut cached_buffer: RefCell<Option<SharedPixelBuffer<slint::Rgba8Pixel>>> = RefCell::new(None);
 
     // UI Initialization Logic (called when any menu is opened) ----------------
     let init_ptr = main_window.as_weak();
@@ -70,7 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let f_info = read_wav_meta(&mut reader);
 
                     if let Some(_) = supported_configs.iter().find(|e| {
-                            e.max_sample_rate() == SampleRate(f_info.sample_rate)
+                        e.max_sample_rate() == SampleRate(f_info.sample_rate)
                     }) {
                         supported_files.push(f);
                     }
@@ -130,18 +130,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let max_freq: f32 = 20000.;
         for i in 0..n {
             let freq = (min_freq * (max_freq / min_freq).powf(i as f32 / (n as f32 - 1.0))).round();
-            nodes.push(NodeData { gain: (i * (-1i32).pow(i as u32)) as f32, freq, q: 1.0 });
+            nodes.push(NodeData { gain: 0., freq, q: 1.0 });
         }
         return ModelRc::new(Rc::new(VecModel::from(nodes)));
     });
 
-    // Draw Eq Image & set audio EQ
-    let player_eq_ptr = Arc::clone(&player_eq);
+    // Draw Eq Image
     main_window.on_request_eq_response(move | 
         eq_nodes: ModelRc<NodeData>,
         low_freq_bound: f32, high_freq_bound: f32,
         min_gain: f32, max_gain: f32,
         imgx: f32, imgy: f32 | {
+        let mut drawn_eq = ParametricEq::new(vec![], 48000);
+        if let Some(nodes) = eq_nodes.as_any().downcast_ref::<VecModel<NodeData>>() {
+            for n in nodes.iter() {
+                drawn_eq.add_node(n.freq as u32, n.gain, n.q);
+            }
+        }
+
+        let mut cached_buffer = cached_buffer.borrow_mut();
+        let imgx = imgx as u32;
+        let imgy = imgy as u32;
+        match cached_buffer.as_ref() {
+            Some(buf) => {
+                if buf.width() != imgx || buf.height() != imgy {
+                    *cached_buffer = Some(SharedPixelBuffer::new(imgx, imgy));
+                }
+            },
+            None => {
+                *cached_buffer = Some(SharedPixelBuffer::new(imgx, imgy));
+            }
+        }
+
+        generate_eq_response(cached_buffer.as_mut().unwrap(), &drawn_eq, low_freq_bound as u32, high_freq_bound as u32, min_gain, max_gain, imgx as u32, imgy as u32)
+    });
+
+    let player_eq_ptr = Arc::clone(&player_eq);
+    main_window.on_set_eq(move | eq_nodes: ModelRc<NodeData> | {
         let mut player_eq = player_eq_ptr.lock().unwrap();
         player_eq.reset();
         if let Some(nodes) = eq_nodes.as_any().downcast_ref::<VecModel<NodeData>>() {
@@ -149,8 +174,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 player_eq.add_node(n.freq as u32, n.gain, n.q);
             }
         }
-
-        generate_eq_response(player_eq.deref(), low_freq_bound as u32, high_freq_bound as u32, min_gain, max_gain, imgx as u32, imgy as u32)
     });
 
     // Slider-to-audio behaviour -----------------------------------------------

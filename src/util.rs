@@ -1,4 +1,7 @@
 use std::{fs, io};
+use std::ops::Range;
+
+use plotters::coord::ranged1d::AsRangedCoord;
 
 #[allow(unused)]
 pub fn get_arr_from_slice(slice: &[u8]) -> [u8; 4] {
@@ -23,11 +26,9 @@ pub fn query_directory(dir: &str) -> impl Iterator<Item = String> {
     entries.into_iter().map(|e| e.to_string_lossy().to_string())
 }
 
-pub fn logspace(min: u32, max: u32, num_points: usize) -> impl Iterator<Item = f32> {
-    let min_f = min as f32;
-    let max_f = max as f32;
-    let log_min = min_f.ln();
-    let log_max = max_f.ln();
+pub fn logspace(min: f32, max: f32, num_points: usize) -> impl Iterator<Item = f32> {
+    let log_min = min.ln();
+    let log_max = max.ln();
     let step = (log_max - log_min) / ((num_points - 1) as f32);
     
     (0..num_points).map(move |i| (log_min + step * (i as f32)).exp())

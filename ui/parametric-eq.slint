@@ -14,26 +14,38 @@ export struct FreqResponse {
 export component ParametricEq {
 
     pure callback initialize_eq_nodes(int, int, int) -> [NodeData];
+    pure callback set_eq([NodeData]);
     pure callback request_eq_response([NodeData], float, float, float, float, length, length) -> image;
 
     width: 100%;
     height: 100%;
 
-    property <float> min_freq: 20;
-    property <float> max_freq: 20000;
-    property <float> min_gain: -20;
-    property <float> max_gain: 20;
+    out property <float> min_freq: 20;
+    out property <float> max_freq: 20000;
+    out property <float> min_gain: -20;
+    out property <float> max_gain: 20;
+
+    property <length> left_axis_margin: 30px;
+    property <length> bottom_axis_margin: 15px;
+    property <length> graph_margin: 5px;
+
+    out property <length> draw_area_width: root.width - left_axis_margin - 2 * graph_margin;
+    out property <length> graph_height: root.height * 0.8;
+    out property <length> draw_area_height: graph_height - bottom_axis_margin - 2 * graph_margin;
 
     property <length> node_rad: 8px;
 
     in property <int> num_nodes: 5;
-    property <[NodeData]> eq_nodes: initialize_eq_nodes(self.num_nodes, min_freq, max_freq);
+    out property <[NodeData]> eq_nodes: initialize_eq_nodes(self.num_nodes, min_freq, max_freq);
 
+    property <bool> is_hovered;
     property <int> hovered_node;
     property <length> hovered_node_x;
     property <length> hovered_node_y;
 
-    property <image> eq_graph;
+    in-out property <image> eq_graph;
+    property <bool> on_cooldown;
+    property <bool> eq_changed;
 
     changed num_nodes => {
         self.eq_nodes = initialize_eq_nodes(self.num_nodes, min_freq, max_freq);
@@ -45,21 +57,28 @@ export component ParametricEq {
             Image {
                 source: eq_graph;
             }
+            Text {
+                x: root.x + 5px;
+                y: root.y + 5px;
+                text: "Changed (release to set changes)";
+                color: red;
+                visible: root.eq_changed;
+            }
             for node[i] in eq_nodes: Rectangle {
                 property <bool> has_hover: is_inside(self.x + root.node_rad, self.y + root.node_rad, peq_ta.mouse-x, peq_ta.mouse-y, root.node_rad);
 
-                x: root.node_to_x(node, parent.x, parent.width, root.min_freq, root.max_freq) - root.node_rad;
-                y: root.node_to_y(node, parent.y, parent.height, root.min_gain, root.max_gain) - root.node_rad;
+                x: root.node_to_x(node) - root.node_rad;
+                y: root.node_to_y(node) - root.node_rad;
 
                 width: 2 * root.node_rad;
                 height: 2 * root.node_rad;
 
                 border-radius: root.node_rad;
                 border-width: 1px;
-                border-color: has_hover ? blue : white;
+                border-color: has_hover ? blue : black;
 
                 changed has_hover => {
-                    if (self.has_hover == true) {
+                    if (self.has_hover == true && (hovered_node == i || !is_hovered)) {
                         root.hovered_node = i;
                         root.hovered_node_x = self.x + root.node_rad;
                         root.hovered_node_y = self.y + root.node_rad;
@@ -67,22 +86,44 @@ export component ParametricEq {
                 }
             }
             peq_ta := TouchArea {
-                moved => {
-                    if (is_inside(hovered_node_x, hovered_node_y, self.mouse-x, self.mouse-y, root.node_rad)) {
-                        root.eq_nodes[hovered_node].freq = x_to_freq(self.mouse-x, parent.x, parent.width, root.min_freq, root.max_freq);
-                        root.eq_nodes[hovered_node].gain = y_to_gain(self.mouse-y, parent.y, parent.height, root.min_gain, root.max_gain);
-                        hovered_node_x = self.mouse-x;
-                        hovered_node_y = self.mouse-y;
+                cooldown := Timer {
+                    interval: 20ms;
+                    running: false;
+                    triggered => {
+                        root.on_cooldown = false;
+                        self.running = false;
                     }
                 }
-            }
-            
-            Button {
-                x: root.x + root.width - self.width - 3px;
-                y: root.y + root.height * 0.8 - self.height - 3px;
-                text: "Set Eq Curve";
-                clicked => {
-                    root.eq_graph = request_eq_response(root.eq_nodes, root.min_freq, root.max_freq, root.min_gain, root.max_gain, root.width, root.height * 0.8);
+                pointer-event(event) => {
+                    if (event.button != PointerEventButton.left) {return;}
+
+                    if (event.kind == PointerEventKind.down) {
+                        if (is_inside(hovered_node_x, hovered_node_y, self.mouse-x, self.mouse-y, root.node_rad)) {
+                            is_hovered = true;
+                        }
+                    }
+
+                    if (event.kind == PointerEventKind.up) {
+                        set_eq(root.eq_nodes);
+                        root.eq_changed = false;
+                        is_hovered = false;
+                    }
+                }
+                moved => {
+                    if (root.is_hovered) {
+                        root.eq_changed = true;
+                        root.eq_nodes[hovered_node].freq = Math.max(root.min_freq, Math.min(root.max_freq, x_to_freq(self.mouse-x)));
+                        root.eq_nodes[hovered_node].gain = Math.max(root.min_gain, Math.min(root.max_gain, y_to_gain(self.mouse-y)));
+
+                        hovered_node_x = self.mouse-x;
+                        hovered_node_y = self.mouse-y;
+
+                        if (!root.on_cooldown) {
+                            root.eq_graph = request_eq_response(root.eq_nodes, root.min_freq, root.max_freq, root.min_gain, root.max_gain, root.width, root.height * 0.8);
+                            root.on_cooldown = true;
+                            cooldown.running = true;
+                        }
+                    }
                 }
             }
         }
@@ -137,47 +178,32 @@ export component ParametricEq {
 
     pure function node_to_x(
         node: NodeData,
-        parent_x: length, parent_w: length,
-        min_freq: float, max_freq: float
     ) -> length {
-        parent_x + ((log(node.freq, 10)-log(min_freq, 10))/(log(max_freq, 10)-log(min_freq, 10))) * parent_w;
+        root.x + root.left_axis_margin + root.graph_margin + ((log(node.freq, 10)-log(root.min_freq, 10))/(log(root.max_freq, 10)-log(root.min_freq, 10))) * root.draw_area_width;
     }
 
     pure function x_to_freq(
         x: length,
-        parent_x: length, parent_w: length,
-        min_freq: float, max_freq: float
     ) -> float {
-        Math.pow(10, log(min_freq, 10) + ((x - parent_x) / parent_w) * (log(max_freq, 10) - log(min_freq, 10)))
+        Math.pow(10, log(root.min_freq, 10) + ((x - root.x - root.left_axis_margin - root.graph_margin) / root.draw_area_width) * (log(root.max_freq, 10) - log(root.min_freq, 10)))
     }
 
     pure function node_to_y(
         node: NodeData,
-        parent_y: length, parent_h: length,
-        min_gain: float, max_gain: float,
     ) -> length {
-        if (node.gain > 0.0) {
-            return ((parent_y + parent_h / 2) - (log(1 + node.gain, 10) / log(1 + max_gain, 10)) * parent_h / 2);
-        } else if (node.gain < 0.0) {
-            return ((parent_y + parent_h / 2) + (log(1 - node.gain, 10) / log(1 + max_gain, 10)) * parent_h / 2);
-        } else {
-            return (parent_y + parent_h / 2);
-        }
+        return (root.draw_area_height / 2) + graph_margin - node.gain / (root.max_gain - root.min_gain) * root.draw_area_height;
     }
 
     pure function y_to_gain(
         y: length,
-        parent_y: length, parent_h: length,
-        min_gain: float, max_gain: float,
     ) -> float {
-        if (y < parent_y + parent_h / 2) {
-            return Math.pow(10, ((parent_y + parent_h / 2 - y) / (parent_h / 2)) * log(1 + max_gain, 10)) - 1;
-        } else if (y > parent_y + parent_h / 2) {
-            return -(Math.pow(10, ((y - (parent_y + parent_h / 2)) / (parent_h / 2)) * log(1 - min_gain, 10)) - 1);
+        if (y > root.draw_area_height / 2) {
+            return -((y - root.draw_area_height / 2 - root.graph_margin) / root.draw_area_height) * (root.max_gain - root.min_gain);
+        } else if (y < root.draw_area_height / 2) {
+            return 20 - ((y - root.graph_margin) / root.draw_area_height) * (root.max_gain - root.min_gain);
         } else {
-            return (parent_y + parent_h / 2) / 1px;
+            return 0.0;
         }
-        0.0
     }
 
 }

@@ -8,7 +8,6 @@ pub struct ParametricEq {
 
 impl ParametricEq {
     pub fn new(nodes: Vec<Biquad>, sample_rate: u32) -> Self {
-
         Self {
             nodes,
             sample_rate,
@@ -51,7 +50,7 @@ impl ParametricEq {
 
     pub fn get_freq_response_log(&self, lower_bound: u32, upper_bound: u32, num_points: usize) -> Vec<(u32, f32)> {
         let mut test_pts = vec![(0, 0.); num_points as usize];
-        for (test_freq, i) in logspace(lower_bound, upper_bound, num_points).zip(0..num_points) {
+        for (test_freq, i) in logspace(lower_bound as f32, upper_bound as f32, num_points).zip(0..num_points) {
             let mut sum = 0.;
             for node in &self.nodes {
                 sum += (20. * node.calc_response(test_freq as f32).log10()) - node.ref_value;

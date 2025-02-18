@@ -3,11 +3,13 @@ import {PlayerProgressBar} from "./player-progress-bar.slint";
 import {ParametricEq, NodeData} from "./parametric-eq.slint";
 
 component MainUi {
+    callback init_menu(int);
     callback toggle_play(bool);
     callback file_select(string);
     callback slider_released(float);
     callback render_waveform(string, length, length) -> image;
     pure callback init_eq_nodes(int) -> [NodeData];
+    pure callback set_eq([NodeData]);
     pure callback request_eq_response([NodeData], float, float, float, float, length, length) -> image;
 
     in property <int> cur_menu;
@@ -29,6 +31,10 @@ component MainUi {
     }
     
     if (cur_menu == 0): VerticalLayout {
+        init => {
+            init_menu(0);
+            param_eq.eq_graph = request_eq_response(param_eq.eq_nodes, param_eq.min_freq, param_eq.max_freq, param_eq.min_gain, param_eq.max_gain, param_eq.width, param_eq.graph_height);
+        }
         width: 100%;
         height: 100%;
 
@@ -39,6 +45,9 @@ component MainUi {
                 }
                 request_eq_response(n, lf, hf, min_gain, max_gain, x, y) => {
                     root.request_eq_response(n, lf, hf, min_gain, max_gain, x, y);
+                }
+                set_eq(nodes) => {
+                    root.set_eq(nodes);
                 }
             }
         }
@@ -163,29 +172,26 @@ component MenuButton {
 export component MainWindow inherits Window {
     width: 800px;
     height: 450px;
-    property <int> current-menu;
+    property <int> current-menu: -1;
 
     in property <[string]> audio_files <=> main_ui.audio_files;
     in property <float> file_duration <=> main_ui.file_duration;
     in-out property <bool> is_playing <=> main_ui.is_playing;
     in-out property <string> selected_file <=> main_ui.selected_file;
 
+    callback init_menu <=> main_ui.init_menu;
     callback toggle_play <=> main_ui.toggle_play;
     callback file_select <=> main_ui.file_select;
     callback render_waveform <=> main_ui.render_waveform;
     callback slider_released <=> main_ui.slider_released;
     pure callback init_eq_nodes <=> main_ui.init_eq_nodes;
+    pure callback set_eq <=> main_ui.set_eq;
     pure callback request_eq_response <=> main_ui.request_eq_response;
 
     in-out property slider_pos <=> main_ui.slider_pos;
     out property <bool> slider_pressed <=> main_ui.slider_pressed;
 
-    callback init_menu(menu: int);
     callback close_menu(menu: int);
-
-    init => {
-        init_menu(0);
-    }
 
     HorizontalLayout {
         Rectangle {

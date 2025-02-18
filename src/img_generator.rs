@@ -1,9 +1,10 @@
-use std::{io::BufReader, fs::File};
+use std::{io::BufReader, fs::File, cell::RefCell};
 
-use image::{Pixel, Rgb, RgbImage, RgbaImage, Rgba};
+//use image::{Pixel, Rgb, RgbImage, RgbaImage, Rgba};
 use slint::{Image, Rgba8Pixel, SharedPixelBuffer, SharedString};
+use plotters::{backend::BGRXPixel, chart::ChartBuilder, prelude::*, series::LineSeries, style::{RGBAColor, ShapeStyle}};
 
-use crate::{audio::ShortTimeDftData, ParametricEq, file_io::{read_wav_meta, read_data}, hue_to_rgb};
+use crate::{/*audio::ShortTimeDftData, */file_io::{read_data, read_wav_meta}, util::{logspace, sym_logspace}, ParametricEq/*, hue_to_rgb*/};
 
 pub fn generate_waveform(audio_file: SharedString, imgx: f32, imgy: f32) -> Image {
     if audio_file.trim().is_empty() {
@@ -24,7 +25,7 @@ pub fn generate_waveform(audio_file: SharedString, imgx: f32, imgy: f32) -> Imag
 
     let mut shared_buf = SharedPixelBuffer::new(imgx as u32, imgy as u32);
     let buf = shared_buf.make_mut_slice();
-   for x in 0..(imgx as usize) {
+    for x in 0..(imgx as usize) {
         // Determine the range of sample indices that fall into this x column.
         let start = (x as f32 * samples_per_pixel).floor() as usize;
         let end = ((x as f32 + 1.0) * samples_per_pixel).ceil() as usize;
@@ -62,120 +63,133 @@ pub fn generate_waveform(audio_file: SharedString, imgx: f32, imgy: f32) -> Imag
     Image::from_rgba8(shared_buf)
 }
 
-pub fn generate_waveform_img(
-    target_dir: String,
-    imgx: u32,
-    imgy: u32,
-    samples: Vec<Vec<f32>>, 
-) -> Result<(), image::ImageError> {
-    if samples.len() == 0 || samples[0].len() == 0 {
-        return Ok(())
-    }
-    let channels = samples.len();
+//pub fn generate_waveform_img(
+//    target_dir: String,
+//    imgx: u32,
+//    imgy: u32,
+//    samples: Vec<Vec<f32>>, 
+//) -> Result<(), image::ImageError> {
+//    if samples.len() == 0 || samples[0].len() == 0 {
+//        return Ok(())
+//    }
+//    let channels = samples.len();
+//
+//    let x_scale = imgx as f32 / samples[0].len() as f32;
+//    let middle = (imgy / 2) as f32;
+//
+//    let mut imgbuf = RgbaImage::new(imgx, imgy);
+//
+//    for i in 0..samples[0].len() {
+//        let mut sum = 0.;
+//        for j in 0..channels {
+//            sum += samples[j][i];
+//        }
+//        sum /= channels as f32;
+//
+//        imgbuf.put_pixel(((i as f32 * x_scale).round() as u32).min(imgx - 1), (middle + sum * middle).round() as u32, *Rgba::from_slice(&[0u8, 255u8, 0u8, 255u8]));
+//    }
+//
+//    imgbuf.save(target_dir)
+//}
 
-    let x_scale = imgx as f32 / samples[0].len() as f32;
-    let middle = (imgy / 2) as f32;
-
-    let mut imgbuf = RgbaImage::new(imgx, imgy);
-    
-    for i in 0..samples[0].len() {
-        let mut sum = 0.;
-        for j in 0..channels {
-            sum += samples[j][i];
-        }
-        sum /= channels as f32;
-
-        imgbuf.put_pixel(((i as f32 * x_scale).round() as u32).min(imgx - 1), (middle + sum * middle).round() as u32, *Rgba::from_slice(&[0u8, 255u8, 0u8, 255u8]));
-    }
-    
-    imgbuf.save(target_dir)
-}
-
-pub fn generate_eq_response(param_eq: &ParametricEq, low_freq_bound: u32, high_freq_bound: u32, min_gain: f32, max_gain: f32, imgx: u32, imgy: u32) -> Image {
+pub fn generate_eq_response(
+    cached_buffer: &mut SharedPixelBuffer<slint::Rgba8Pixel>,
+    param_eq: &ParametricEq,
+    low_freq_bound: u32, high_freq_bound: u32,
+    min_gain: f32, max_gain: f32,
+    imgx: u32, imgy: u32) -> Image {
     let resp = param_eq.get_freq_response_log(low_freq_bound, high_freq_bound, imgx as usize);
+    let size = (imgx, imgy);
 
-    let x_log_ratio = 1. / ((high_freq_bound as f32).ln() - (low_freq_bound as f32).ln());
-    let center_y = imgy as f32 / 2.;
+    let pixel_buffer = cached_buffer;
 
-    let mut shared_buf = SharedPixelBuffer::new(imgx, imgy);
-    let buf = shared_buf.make_mut_slice();
-    for (f, r) in resp {
-        let x_ratio = ((f as f32).ln() - (low_freq_bound as f32).ln()) * x_log_ratio;
-        let px_x = (x_ratio * imgx as f32) as usize;
-        let px_y = if r > 0. {
-            let ratio = (1. + r).ln() / (1. + max_gain).ln();
-            center_y - ratio * center_y
-        } else if r < 0. {
-            let ratio = (1. - r).ln() / (1. - min_gain).ln();
-            center_y + ratio * center_y
-        } else {
-            center_y
-        };
-        buf[px_y as usize * imgx as usize + px_x] = Rgba8Pixel::new(255, 255, 255, 255);
-    }
+    let backend: BitMapBackend<'_, BGRXPixel> = BitMapBackend::with_buffer_and_format(pixel_buffer.make_mut_bytes(), size).unwrap();
 
-    Image::from_rgba8(shared_buf)
+    let img = backend.into_drawing_area();
+    img.fill(&WHITE).unwrap();
+
+    let mut chart = ChartBuilder::on(&img)
+        .x_label_area_size(15)
+        .y_label_area_size(30)
+        .margin(5)
+        .build_cartesian_2d((low_freq_bound as f32..high_freq_bound as f32).log_scale(), min_gain..max_gain).unwrap();
+
+    chart.configure_mesh()
+        .draw().unwrap();
+
+    chart.draw_series(LineSeries::new(
+        resp.into_iter().map(|(x, y)| (x as f32, y)),
+        (&BLACK).filled().stroke_width(1)
+    )).unwrap();
+
+    img.present().unwrap();
+
+    //drop chart building items so we can return pixel_buffer
+    drop(chart);
+    drop(img);
+
+    Image::from_rgba8(pixel_buffer.clone())
 }
 
-pub fn generate_spectrogram_img(
-    target_dir: String,
-    imgx: u32,
-    imgy: u32,
-    stdft: ShortTimeDftData,
-) -> Result<(), image::ImageError> {
-    let num_dfts = stdft.num_dfts;
-    let num_freq = stdft.num_freq;
-
-    let x_scale = num_dfts as f32 / imgx as f32;
-    let y_scale = num_freq as f32 / imgy as f32;
-
-    let max_amplitude = find_max_amplitude(&stdft);
-
-    let mut imgbuf = RgbImage::new(imgx, imgy);
-    let mut written_px = vec![vec![false; imgx as usize]; imgy as usize];
-
-    for input_y in 0..num_freq {
-        for input_x in 0..num_dfts {
-            let x = (input_x as f32 / x_scale).floor() as u32;
-            let y = (input_y as f32 / y_scale).floor() as u32;
-
-            if !written_px[y as usize][x as usize] {
-                imgbuf.put_pixel(x, y, *Rgb::from_slice(&rgb_from_range(stdft.dft_data[input_x as usize][stdft.num_freq as usize - input_y as usize - 1].amplitude, max_amplitude)));
-                written_px[y as usize][x as usize] = true;
-            } else { //if we have already written to this pixel, blend between the two rgb values
-                let cur_px = rgb_from_range(stdft.dft_data[input_x as usize][stdft.num_freq as usize - input_y as usize - 1].amplitude, max_amplitude);
-                let other_px = imgbuf.get_pixel(x, y).channels();
-                imgbuf.put_pixel(x, y, *Rgb::from_slice(&blend_rgb(&cur_px, &other_px)));
-            }
-        }
-    }
-
-    imgbuf.save(target_dir)
-}
-
-fn find_max_amplitude(stdft: &ShortTimeDftData) -> f32 {
-    let mut max = 0.;
-    for dft in &stdft.dft_data {
-        for freq_data in dft {
-            if freq_data.amplitude.abs() > max {
-                max = freq_data.amplitude.abs();
-            }
-        }
-    }
-    max
-}
-
-fn blend_rgb(col1: &[u8], col2: &[u8]) -> [u8; 3] {
-    [
-        ((col1[0] as u32 + col2[0] as u32) / 2) as u8,
-        ((col1[1] as u32 + col2[1] as u32) / 2) as u8,
-        ((col1[2] as u32 + col2[2] as u32) / 2) as u8,
-    ]
-}
-
-fn rgb_from_range(amplitude: f32, max_amplitude: f32) -> [u8; 3] {
-    let amp_scaled = f32::powf(amplitude / max_amplitude, 0.3);
-    let col_val = (amp_scaled * 360. + 200.) % 360.;
-
-    hue_to_rgb(col_val, 0.8, 1.)
-}
+//pub fn generate_spectrogram_img(
+//    target_dir: String,
+//    imgx: u32,
+//    imgy: u32,
+//    stdft: ShortTimeDftData,
+//) -> Result<(), image::ImageError> {
+//    let num_dfts = stdft.num_dfts;
+//    let num_freq = stdft.num_freq;
+//
+//    let x_scale = num_dfts as f32 / imgx as f32;
+//    let y_scale = num_freq as f32 / imgy as f32;
+//
+//    let max_amplitude = find_max_amplitude(&stdft);
+//
+//    let mut imgbuf = RgbImage::new(imgx, imgy);
+//    let mut written_px = vec![vec![false; imgx as usize]; imgy as usize];
+//
+//    for input_y in 0..num_freq {
+//        for input_x in 0..num_dfts {
+//            let x = (input_x as f32 / x_scale).floor() as u32;
+//            let y = (input_y as f32 / y_scale).floor() as u32;
+//
+//            if !written_px[y as usize][x as usize] {
+//                imgbuf.put_pixel(x, y, *Rgb::from_slice(&rgb_from_range(stdft.dft_data[input_x as usize][stdft.num_freq as usize - input_y as usize - 1].amplitude, max_amplitude)));
+//                written_px[y as usize][x as usize] = true;
+//            } else { //if we have already written to this pixel, blend between the two rgb values
+//                let cur_px = rgb_from_range(stdft.dft_data[input_x as usize][stdft.num_freq as usize - input_y as usize - 1].amplitude, max_amplitude);
+//                let other_px = imgbuf.get_pixel(x, y).channels();
+//                imgbuf.put_pixel(x, y, *Rgb::from_slice(&blend_rgb(&cur_px, &other_px)));
+//            }
+//        }
+//    }
+//
+//    imgbuf.save(target_dir)
+//}
+//
+//fn find_max_amplitude(stdft: &ShortTimeDftData) -> f32 {
+//    let mut max = 0.;
+//    for dft in &stdft.dft_data {
+//        for freq_data in dft {
+//            if freq_data.amplitude.abs() > max {
+//                max = freq_data.amplitude.abs();
+//            }
+//        }
+//    }
+//    max
+//}
+//
+//fn blend_rgb(col1: &[u8], col2: &[u8]) -> [u8; 3] {
+//    [
+//        ((col1[0] as u32 + col2[0] as u32) / 2) as u8,
+//        ((col1[1] as u32 + col2[1] as u32) / 2) as u8,
+//        ((col1[2] as u32 + col2[2] as u32) / 2) as u8,
+//    ]
+//}
+//
+//fn rgb_from_range(amplitude: f32, max_amplitude: f32) -> [u8; 3] {
+//    let amp_scaled = f32::powf(amplitude / max_amplitude, 0.3);
+//    let col_val = (amp_scaled * 360. + 200.) % 360.;
+//
+//    hue_to_rgb(col_val, 0.8, 1.)
+//}
